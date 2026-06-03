@@ -317,32 +317,92 @@ with tab1:
         st.divider()
 
     # Open positions
-    st.markdown('<div class="section-hdr">Open positions</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-hdr">Open positions — click any cell to edit, then save</div>', unsafe_allow_html=True)
     if not open_txs:
         st.markdown('<div style="color:#7a8299;font-size:13px;font-family:DM Mono,monospace;padding:20px 0;">No open positions.</div>', unsafe_allow_html=True)
     else:
-        rows = []
+        open_edit_rows = []
         for t in open_txs:
             itm = current_price and current_price >= t["strike"]
-            rows.append({
+            open_edit_rows.append({
                 "ID":           t["id"],
-                "Opened":       fd(t["date_opened"]),
-                "Price@Open":   fu(t["price_at_open"]),
+                "Date Opened":  t["date_opened"],
+                "Price@Open":   t["price_at_open"],
                 "Contracts":    t["num_contracts"],
-                "Expiration":   fd(t["expiration"]),
-                "DTE Left":     f"{t['dte_remaining']}d{'  ⚠️' if t['dte_remaining']<=7 else ''}",
-                "Strike":       fu(t["strike"]) + (" 🔴" if itm else ""),
-                "Premium":      fu(t["option_premium"]),
-                "Prem Total":   fu(t["premium_total"]),
-                "Prem ROI":     fp(t["premium_roi"]),
-                "ROI Ann":      fp(t["roi_annual"]),
-                "If Assigned":  fu(t["premium_if_assigned"]),
-                "Total If Asgn":fu(t["total_if_assigned"]),
-                "Asgn ROI":     fp(t["assigned_roi"]),
-                "Asgn ROI Ann": fp(t["assigned_roi_annual"]),
+                "Expiration":   t["expiration"],
+                "DTE Left":     f"{t['dte_remaining']}d",
+                "Strike":       t["strike"],
+                "ITM":          "YES" if itm else "no",
+                "Premium":      t["option_premium"],
+                "Prem Total":   t["premium_total"],
+                "Prem ROI%":    t["premium_roi"],
+                "ROI Ann%":     t["roi_annual"],
+                "If Assigned":  t["premium_if_assigned"],
+                "Total If Asgn":t["total_if_assigned"],
+                "Asgn ROI%":    t["assigned_roi"],
+                "Asgn ROI Ann%":t["assigned_roi_annual"],
+                "Status":       t["status"],
+                "BTC Price":    t["btc_price"] or 0.0,
+                "Date Closed":  t["date_closed"] or "",
                 "Notes":        t["notes"] or "",
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        open_df = pd.DataFrame(open_edit_rows)
+        edited_open = st.data_editor(
+            open_df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",
+            column_config={
+                "ID":            st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                "Date Opened":   st.column_config.TextColumn("Date Opened"),
+                "Price@Open":    st.column_config.NumberColumn("Price@Open", format="$%.2f"),
+                "Contracts":     st.column_config.NumberColumn("Contracts", min_value=1, step=1),
+                "Expiration":    st.column_config.TextColumn("Expiration"),
+                "DTE Left":      st.column_config.TextColumn("DTE Left", disabled=True),
+                "Strike":        st.column_config.NumberColumn("Strike", format="$%.2f"),
+                "ITM":           st.column_config.TextColumn("ITM", disabled=True, width="small"),
+                "Premium":       st.column_config.NumberColumn("Premium", format="$%.2f"),
+                "Prem Total":    st.column_config.NumberColumn("Prem Total", format="$%.2f", disabled=True),
+                "Prem ROI%":     st.column_config.NumberColumn("Prem ROI%", format="%.2f%%", disabled=True),
+                "ROI Ann%":      st.column_config.NumberColumn("ROI Ann%", format="%.2f%%", disabled=True),
+                "If Assigned":   st.column_config.NumberColumn("If Assigned", format="$%.2f", disabled=True),
+                "Total If Asgn": st.column_config.NumberColumn("Total If Asgn", format="$%.2f", disabled=True),
+                "Asgn ROI%":     st.column_config.NumberColumn("Asgn ROI%", format="%.2f%%", disabled=True),
+                "Asgn ROI Ann%": st.column_config.NumberColumn("Asgn ROI Ann%", format="%.2f%%", disabled=True),
+                "Status":        st.column_config.SelectboxColumn("Status", options=["Open","Expired","BTC","Assigned"]),
+                "BTC Price":     st.column_config.NumberColumn("BTC Price", format="$%.2f"),
+                "Date Closed":   st.column_config.TextColumn("Date Closed"),
+                "Notes":         st.column_config.TextColumn("Notes"),
+            },
+            key="open_editor"
+        )
+        if st.button("Save open positions changes", type="primary", key="save_open"):
+            for _, row in edited_open.iterrows():
+                tid = int(row["ID"])
+                do_str = str(row["Date Opened"]).strip()
+                ex_str = str(row["Expiration"]).strip()
+                try:
+                    dte_new = (datetime.strptime(ex_str, "%Y-%m-%d").date() - datetime.strptime(do_str, "%Y-%m-%d").date()).days
+                except:
+                    dte_new = 0
+                btc_val = float(row["BTC Price"]) if row["BTC Price"] and float(row["BTC Price"]) > 0 else None
+                dc_val  = str(row["Date Closed"]).strip() or None
+                update_transaction(tid, {
+                    "date_opened":   do_str,
+                    "price_at_open": float(row["Price@Open"]),
+                    "num_contracts": int(row["Contracts"]),
+                    "expiration":    ex_str,
+                    "strike":        float(row["Strike"]),
+                    "option_premium":float(row["Premium"]),
+                    "dte":           dte_new,
+                    "btc_price":     btc_val,
+                    "date_closed":   dc_val,
+                    "status":        str(row["Status"]),
+                    "assigned":      "Y" if str(row["Status"]) == "Assigned" else "N",
+                    "notes":         str(row["Notes"]) if row["Notes"] else "",
+                })
+            st.success("Open positions saved.")
+            st.rerun()
 
     st.divider()
     s1,s2,s3 = st.columns(3)
@@ -454,30 +514,85 @@ with tab3:
     if not filtered:
         st.info("No transactions match the filter.")
     else:
-        status_icons = {"Open":"🔵","Expired":"🟢","BTC":"🟡","Assigned":"🔴"}
-        rows = []
+        hist_edit_rows = []
         for t in filtered:
-            rows.append({
+            hist_edit_rows.append({
                 "ID":           t["id"],
-                "Opened":       fd(t["date_opened"]),
-                "Closed":       fd(t["date_closed"]),
+                "Date Opened":  t["date_opened"],
+                "Date Closed":  t["date_closed"] or "",
                 "Days":         t["days_open"],
                 "Contracts":    t["num_contracts"],
-                "Strike":       fu(t["strike"]),
-                "Premium":      fu(t["option_premium"]),
-                "Prem Total":   fu(t["premium_total"]),
-                "BTC":          fu(t["btc_price"]) if t["btc_price"] else "—",
-                "Prem ROI":     fp(t["premium_roi"]),
-                "ROI Ann":      fp(t["roi_annual"]),
-                "If Assigned":  fu(t["premium_if_assigned"]),
-                "Asgn ROI":     fp(t["assigned_roi"]),
-                "Asgn ROI Ann": fp(t["assigned_roi_annual"]),
-                "Status":       status_icons.get(t["status"],"") + " " + t["status"],
-                "P&L":          fu(t["profit_loss"]),
-                "Final ROI":    fp(t["final_roi"]),
+                "Price@Open":   t["price_at_open"],
+                "Strike":       t["strike"],
+                "Premium":      t["option_premium"],
+                "Prem Total":   t["premium_total"],
+                "BTC Price":    t["btc_price"] or 0.0,
+                "Prem ROI%":    t["premium_roi"],
+                "ROI Ann%":     t["roi_annual"],
+                "If Assigned":  t["premium_if_assigned"],
+                "Asgn ROI%":    t["assigned_roi"],
+                "Asgn ROI Ann%":t["assigned_roi_annual"],
+                "Status":       t["status"],
+                "P&L":          t["profit_loss"] if t["profit_loss"] is not None else 0.0,
+                "Final ROI%":   t["final_roi"] if t["final_roi"] is not None else 0.0,
                 "Notes":        t["notes"] or "",
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        hist_df = pd.DataFrame(hist_edit_rows)
+        edited_hist = st.data_editor(
+            hist_df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="fixed",
+            column_config={
+                "ID":           st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                "Date Opened":  st.column_config.TextColumn("Date Opened"),
+                "Date Closed":  st.column_config.TextColumn("Date Closed"),
+                "Days":         st.column_config.NumberColumn("Days", disabled=True),
+                "Contracts":    st.column_config.NumberColumn("Contracts", min_value=1, step=1),
+                "Price@Open":   st.column_config.NumberColumn("Price@Open", format="$%.2f"),
+                "Strike":       st.column_config.NumberColumn("Strike", format="$%.2f"),
+                "Premium":      st.column_config.NumberColumn("Premium", format="$%.2f"),
+                "Prem Total":   st.column_config.NumberColumn("Prem Total", format="$%.2f", disabled=True),
+                "BTC Price":    st.column_config.NumberColumn("BTC Price", format="$%.2f"),
+                "Prem ROI%":    st.column_config.NumberColumn("Prem ROI%", format="%.2f%%", disabled=True),
+                "ROI Ann%":     st.column_config.NumberColumn("ROI Ann%", format="%.2f%%", disabled=True),
+                "If Assigned":  st.column_config.NumberColumn("If Assigned", format="$%.2f", disabled=True),
+                "Asgn ROI%":    st.column_config.NumberColumn("Asgn ROI%", format="%.2f%%", disabled=True),
+                "Asgn ROI Ann%":st.column_config.NumberColumn("Asgn ROI Ann%", format="%.2f%%", disabled=True),
+                "Status":       st.column_config.SelectboxColumn("Status", options=["Open","Expired","BTC","Assigned"]),
+                "P&L":          st.column_config.NumberColumn("P&L", format="$%.2f", disabled=True),
+                "Final ROI%":   st.column_config.NumberColumn("Final ROI%", format="%.2f%%", disabled=True),
+                "Notes":        st.column_config.TextColumn("Notes"),
+            },
+            key="hist_editor"
+        )
+        if st.button("Save history changes", type="primary", key="save_hist"):
+            for _, row in edited_hist.iterrows():
+                tid = int(row["ID"])
+                do_str = str(row["Date Opened"]).strip()
+                ex_str = next((t["expiration"] for t in filtered if t["id"] == tid), do_str)
+                dc_str = str(row["Date Closed"]).strip() or None
+                try:
+                    dte_new = (datetime.strptime(ex_str, "%Y-%m-%d").date() - datetime.strptime(do_str, "%Y-%m-%d").date()).days
+                except:
+                    dte_new = 0
+                btc_val = float(row["BTC Price"]) if row["BTC Price"] and float(row["BTC Price"]) > 0 else None
+                update_transaction(tid, {
+                    "date_opened":   do_str,
+                    "price_at_open": float(row["Price@Open"]),
+                    "num_contracts": int(row["Contracts"]),
+                    "expiration":    ex_str,
+                    "strike":        float(row["Strike"]),
+                    "option_premium":float(row["Premium"]),
+                    "dte":           dte_new,
+                    "btc_price":     btc_val,
+                    "date_closed":   dc_str,
+                    "status":        str(row["Status"]),
+                    "assigned":      "Y" if str(row["Status"]) == "Assigned" else "N",
+                    "notes":         str(row["Notes"]) if row["Notes"] else "",
+                })
+            st.success("History saved.")
+            st.rerun()
         st.divider()
         t1,t2,t3,t4 = st.columns(4)
         t1.metric("Total premium",   fu(sum(t["premium_total"] for t in filtered)))
