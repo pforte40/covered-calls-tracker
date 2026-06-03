@@ -351,7 +351,7 @@ with tab1:
             open_df,
             use_container_width=True,
             hide_index=True,
-            num_rows="fixed",
+            num_rows="dynamic",
             column_config={
                 "ID":            st.column_config.NumberColumn("ID", disabled=True, width="small"),
                 "Date Opened":   st.column_config.TextColumn("Date Opened"),
@@ -377,7 +377,14 @@ with tab1:
             key="open_editor"
         )
         if st.button("Save open positions changes", type="primary", key="save_open"):
+            # Handle deletions
+            edited_ids = set(int(r["ID"]) for _, r in edited_open.iterrows() if not pd.isna(r["ID"]))
+            orig_ids   = set(t["id"] for t in open_txs)
+            for deleted_id in orig_ids - edited_ids:
+                delete_transaction(deleted_id)
+            # Handle updates
             for _, row in edited_open.iterrows():
+                if pd.isna(row["ID"]): continue
                 tid = int(row["ID"])
                 do_str = str(row["Date Opened"]).strip()
                 ex_str = str(row["Expiration"]).strip()
@@ -542,7 +549,7 @@ with tab3:
             hist_df,
             use_container_width=True,
             hide_index=True,
-            num_rows="fixed",
+            num_rows="dynamic",
             column_config={
                 "ID":           st.column_config.NumberColumn("ID", disabled=True, width="small"),
                 "Date Opened":  st.column_config.TextColumn("Date Opened"),
@@ -567,7 +574,14 @@ with tab3:
             key="hist_editor"
         )
         if st.button("Save history changes", type="primary", key="save_hist"):
+            # Handle deletions
+            edited_ids_h = set(int(r["ID"]) for _, r in edited_hist.iterrows() if not pd.isna(r["ID"]))
+            orig_ids_h   = set(t["id"] for t in filtered)
+            for deleted_id in orig_ids_h - edited_ids_h:
+                delete_transaction(deleted_id)
+            # Handle updates
             for _, row in edited_hist.iterrows():
+                if pd.isna(row["ID"]): continue
                 tid = int(row["ID"])
                 do_str = str(row["Date Opened"]).strip()
                 ex_str = next((t["expiration"] for t in filtered if t["id"] == tid), do_str)
